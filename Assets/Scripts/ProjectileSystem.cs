@@ -61,7 +61,7 @@ public class ProjectileSystem : MonoBehaviour
         playerCamera = Camera.main;
         if (playerCamera == null)
         {
-            playerCamera = FindObjectOfType<Camera>();
+            playerCamera = FindFirstObjectByType<Camera>();
         }
 
         // カメラが見つからない場合のエラーハンドリング
