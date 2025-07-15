@@ -9,21 +9,35 @@ using UnityEngine.EventSystems;
  */
 public class BallShooter : MonoBehaviour
 {
-
-    [SerializeField]
-    private BallSimulator _ballSimurator; // 弾道予測線
-
     [SerializeField]
     private Slider _powerSlider; // 力を変えるスライダー
 
     [SerializeField]
-    private GameObject _shooterBase; // 土台
+    bool isDebug = false;
+    [SerializeField]
+    float shootStrength,sensibility,absX,minY;
 
-    private Vector3 _firstPosition;
     private Rigidbody _rigidbody;
-    private Vector3 _touchDownPos;
+    private Vector3 _touchDownPos, simPos, inputVec, muzzleRot;
 
     private bool _isShot;
+
+    float screenAspect,diff;
+
+    [SerializeField]
+    private GameObject _ballSimPrefab; // 何でもOK。予測位置を表示するオブジェクト
+
+    [SerializeField]
+    int SIMULATE_COUNT;
+
+    [SerializeField]
+    float SIMLATE_LENGTH,targetHeight,sliderSpeed; // いくつ先までシュミレートするか
+
+    private Vector3 _startPosition; // 発射開始位置
+    private List<GameObject> _simuratePointList; // シュミレートするゲームオブジェクトリスト
+
+    bool isSliderNegative;
+
     // Use this for initialization
     void Start()
     {
@@ -44,37 +58,103 @@ public class BallShooter : MonoBehaviour
             else if (Input.GetMouseButton(0))
             {
                 var tempPos = Input.mousePosition;
-                Vector3 value = Vector3.zero;
-                value.x = (_touchDownPos.x - tempPos.x);
-                value.y = (_touchDownPos.y - tempPos.y);
-                value.z = 0;
-                _touchDownPos = tempPos;
+                var rotX = tempPos.x - _touchDownPos.x;
+                var rotY = tempPos.y - _touchDownPos.y;
 
-                var qot1 = Quaternion.AngleAxis(value.x, new Vector3(0, 1, 0));
-                var qot2 = Quaternion.AngleAxis(value.y, new Vector3(1, 0, 0));
-                _shooterBase.transform.rotation *= qot1;
-                this.transform.rotation *= qot2;
+                var tempRot = muzzleRot + new Vector3(rotX, rotY * screenAspect, 0).normalized * sensibility *Time.deltaTime;
+
+                if(Mathf.Abs(tempRot.x)>= absX)
+                {
+                    rotX = 0;
+                }
+
+                if(tempRot.y <= minY)
+                {
+                    rotY = 0;
+                }
+
+                muzzleRot += new Vector3(rotX, rotY * screenAspect, 0).normalized * sensibility * Time.deltaTime;
+
+                Debug.Log(muzzleRot);
+                _touchDownPos = tempPos;
             }
         }
 
 
-        Debug.DrawLine(this.transform.position, this.transform.position + this.transform.forward, Color.blue);
-
         // 発射中はシュミレートを止める
         if (!_isShot)
         {
-            var vec = this.transform.forward * _powerSlider.value;
-            _ballSimurator.Simulate(this.gameObject, vec);
+            Simulate(muzzleRot);
+        }
+
+        if (_simuratePointList != null && _simuratePointList.Count > 0 && isDebug)
+        {
+            Debug.DrawLine(this.transform.position, this.transform.position + this.transform.forward, Color.blue);
+
+            for (int i = 0; i < SIMULATE_COUNT; i++)
+            {
+                if (i == 0)
+                {
+                    Debug.DrawLine(_startPosition, _simuratePointList[i].transform.position);
+                }
+                else
+                if (i < SIMULATE_COUNT)
+                {
+                    Debug.DrawLine(_simuratePointList[i - 1].transform.position, _simuratePointList[i].transform.position);
+                }
+            }
+        }
+
+        if(_powerSlider.value <= _powerSlider.minValue)
+        {
+            isSliderNegative = false;
+        }
+        
+        if(_powerSlider.value >= _powerSlider.maxValue)
+        {
+            isSliderNegative = true;
+        }
+
+        if (isSliderNegative)
+        {
+            _powerSlider.value -= sliderSpeed * Time.deltaTime;
+        }
+        else
+        {
+            _powerSlider.value += sliderSpeed * Time.deltaTime;
         }
     }
 
     public void Init()
     {
-        _firstPosition = this.transform.position;
         _rigidbody = this.GetComponent<Rigidbody>();
         _rigidbody.isKinematic = true;
-        _powerSlider.value = 10.0f;
         _isShot = false;
+        muzzleRot = gameObject.transform.forward;
+        diff = targetHeight - gameObject.transform.position.y;
+
+        screenAspect = Screen.width / Screen.height;
+
+        if (_simuratePointList != null && _simuratePointList.Count > 0)
+        {
+            foreach (var go in _simuratePointList)
+            {
+                Destroy(go.gameObject);
+            }
+        }
+
+        // 位置を表示するオブジェクトを予め作っておく
+        if (_ballSimPrefab != null)
+        {
+            _simuratePointList = new List<GameObject>();
+            for (int i = 0; i < SIMULATE_COUNT; i++)
+            {
+                var go = Instantiate(_ballSimPrefab);
+                go.transform.SetParent(this.transform);
+                go.transform.position = Vector3.zero;
+                _simuratePointList.Add(go);
+            }
+        }
 
     }
 
@@ -83,9 +163,32 @@ public class BallShooter : MonoBehaviour
     public void Shoot()
     {
         _isShot = true;
-        var vec = this.transform.forward * _powerSlider.value;
-        _ballSimurator.Simulate(this.gameObject, vec);
+        var vec = muzzleRot;
+        Simulate(vec);
         _rigidbody.isKinematic = false;
         _rigidbody.AddForce(vec, ForceMode.Impulse);
+    }
+
+    void Simulate(Vector3 _vec)
+    {
+        if (_simuratePointList != null && _simuratePointList.Count > 0)
+        {
+            // 発射位置を保存する
+            _startPosition = gameObject.transform.position;
+            if (_rigidbody != null)
+            {
+                float limit = (-_vec.y - Mathf.Sqrt(Mathf.Pow(_vec.y,2) + 2 * Physics.gravity.y * diff)) / Physics.gravity.y;
+                Vector3 forward = _vec;
+                forward.y = 0;
+
+                //弾道予測の位置に点を移動
+                for (int i = 0; i < SIMULATE_COUNT; i++)
+                {
+                    var t = (i * limit / (float)SIMULATE_COUNT); // 0.5秒ごとの位置を予測。
+                    simPos = _vec * t + transform.up *(0.5f * Physics.gravity.y * Mathf.Pow(t, 2.0f)) + forward.normalized * _powerSlider.value * shootStrength * t;
+                    _simuratePointList[i].transform.position = _startPosition + simPos;
+                }
+            }
+        }
     }
 }
