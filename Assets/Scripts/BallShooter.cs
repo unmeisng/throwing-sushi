@@ -11,6 +11,9 @@ public class BallShooter : MonoBehaviour
 {
     [SerializeField]
     private Slider _powerSlider; // 力を変えるスライダー
+    [SerializeField]
+    private GameObject Maguro;
+  
 
     [SerializeField]
     bool isDebug = false;
@@ -31,7 +34,11 @@ public class BallShooter : MonoBehaviour
     int SIMULATE_COUNT;
 
     [SerializeField]
-    float SIMLATE_LENGTH,targetHeight,sliderSpeed; // いくつ先までシュミレートするか
+    float SIMLATE_LENGTH,targetHeight;
+
+    [SerializeField]
+    private GameObject targetCamera; // シュミレートの目標位置
+
 
     private Vector3 _startPosition; // 発射開始位置
     private List<GameObject> _simuratePointList; // シュミレートするゲームオブジェクトリスト
@@ -48,6 +55,10 @@ public class BallShooter : MonoBehaviour
     // Update is called once per frame
     void Update()
     {
+        if (Input.GetKeyDown("space"))
+        {
+            Shoot();
+        }
 
         if (!EventSystem.current.IsPointerOverGameObject())
         {
@@ -75,7 +86,6 @@ public class BallShooter : MonoBehaviour
 
                 muzzleRot += new Vector3(rotX, rotY * screenAspect, 0).normalized * sensibility * Time.deltaTime;
 
-                Debug.Log(muzzleRot);
                 _touchDownPos = tempPos;
             }
         }
@@ -117,16 +127,17 @@ public class BallShooter : MonoBehaviour
 
         if (isSliderNegative)
         {
-            _powerSlider.value -= sliderSpeed * Time.deltaTime;
+            _powerSlider.value -= GameManager.Instance.SliderSpeed * Time.deltaTime;
         }
         else
         {
-            _powerSlider.value += sliderSpeed * Time.deltaTime;
+            _powerSlider.value += GameManager.Instance.SliderSpeed * Time.deltaTime;
         }
     }
 
     public void Init()
     {
+        GameManager.Instance.SliderSpeed = GameManager.Instance.SliderMaxSpeed;
         _rigidbody = this.GetComponent<Rigidbody>();
         _rigidbody.isKinematic = true;
         _isShot = false;
@@ -162,11 +173,40 @@ public class BallShooter : MonoBehaviour
     // 発射(Buttonから呼ぶとか)
     public void Shoot()
     {
+        GameManager.Instance.SliderSpeed = 0f;
         _isShot = true;
         var vec = muzzleRot;
+        Vector3 forward = vec;
+        forward.y = 0; // y成分を0にする
         Simulate(vec);
-        _rigidbody.isKinematic = false;
-        _rigidbody.AddForce(vec, ForceMode.Impulse);
+        GameObject neta = Instantiate(Maguro, transform.position, Quaternion.identity);
+        Rigidbody rb = neta.GetComponent<Rigidbody>();
+
+        if (rb != null)
+        {
+            rb.isKinematic = false;
+            Vector3 shootDir = vec + forward.normalized * _powerSlider.value * shootStrength;
+            rb.AddForce(shootDir, ForceMode.Impulse);
+            GameManager.Instance.MainCamera.SetActive(false);
+            _isShot = false;
+        }
+    }
+
+    private IEnumerator Hide(float waitTime)
+    {
+        // 非表示
+        foreach (var sim in _simuratePointList)
+        {
+            sim.SetActive(false);
+        }
+        yield return new WaitForSeconds(waitTime);
+        _isShot = false;
+
+        // 再表示
+        foreach (var sim in _simuratePointList)
+        {
+            sim.SetActive(true);
+        }
     }
 
     void Simulate(Vector3 _vec)
@@ -184,7 +224,7 @@ public class BallShooter : MonoBehaviour
                 //弾道予測の位置に点を移動
                 for (int i = 0; i < SIMULATE_COUNT; i++)
                 {
-                    var t = (i * limit / (float)SIMULATE_COUNT); // 0.5秒ごとの位置を予測。
+                    var t = (i * limit / (float)SIMULATE_COUNT); 
                     simPos = _vec * t + transform.up *(0.5f * Physics.gravity.y * Mathf.Pow(t, 2.0f)) + forward.normalized * _powerSlider.value * shootStrength * t;
                     _simuratePointList[i].transform.position = _startPosition + simPos;
                 }
