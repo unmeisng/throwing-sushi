@@ -16,6 +16,8 @@ public class BallShooter : MonoBehaviour
     bool isDebug = false;
     [SerializeField]
     float shootStrength,sensibility,absX,minY;
+    [SerializeField]
+    GameObject bullet,mainCamera;
 
     private Rigidbody _rigidbody;
     private Vector3 _touchDownPos, simPos, inputVec, muzzleRot;
@@ -75,7 +77,6 @@ public class BallShooter : MonoBehaviour
 
                 muzzleRot += new Vector3(rotX, rotY * screenAspect, 0).normalized * sensibility * Time.deltaTime;
 
-                Debug.Log(muzzleRot);
                 _touchDownPos = tempPos;
             }
         }
@@ -85,6 +86,25 @@ public class BallShooter : MonoBehaviour
         if (!_isShot)
         {
             Simulate(muzzleRot);
+
+            if (_powerSlider.value <= _powerSlider.minValue)
+            {
+                isSliderNegative = false;
+            }
+
+            if (_powerSlider.value >= _powerSlider.maxValue)
+            {
+                isSliderNegative = true;
+            }
+
+            if (isSliderNegative)
+            {
+                _powerSlider.value -= GameManager.instance.sliderSpeed * Time.deltaTime;
+            }
+            else
+            {
+                _powerSlider.value += GameManager.instance.sliderSpeed * Time.deltaTime;
+            }
         }
 
         if (_simuratePointList != null && _simuratePointList.Count > 0 && isDebug)
@@ -103,25 +123,6 @@ public class BallShooter : MonoBehaviour
                     Debug.DrawLine(_simuratePointList[i - 1].transform.position, _simuratePointList[i].transform.position);
                 }
             }
-        }
-
-        if(_powerSlider.value <= _powerSlider.minValue)
-        {
-            isSliderNegative = false;
-        }
-        
-        if(_powerSlider.value >= _powerSlider.maxValue)
-        {
-            isSliderNegative = true;
-        }
-
-        if (isSliderNegative)
-        {
-            _powerSlider.value -= sliderSpeed * Time.deltaTime;
-        }
-        else
-        {
-            _powerSlider.value += sliderSpeed * Time.deltaTime;
         }
     }
 
@@ -156,17 +157,25 @@ public class BallShooter : MonoBehaviour
             }
         }
 
+        GameManager.instance.onShoot+= delegate { Shoot(); };
     }
 
     //--------------------------------------------------------------------------
     // 発射(Buttonから呼ぶとか)
     public void Shoot()
     {
-        _isShot = true;
+        GameManager.instance.sliderSpeed = 0;
         var vec = muzzleRot;
+        Vector3 forward = vec;
+        GameObject instanse = Instantiate(bullet,gameObject.transform.position, Quaternion.Euler(forward));
+        Rigidbody rb = instanse.GetComponent<Rigidbody>();
+        _isShot = true;
+        forward.y = 0;
         Simulate(vec);
-        _rigidbody.isKinematic = false;
-        _rigidbody.AddForce(vec, ForceMode.Impulse);
+        rb.isKinematic = false;
+        rb.AddForce((vec + forward.normalized * _powerSlider.value * shootStrength), ForceMode.Impulse);
+        GameManager.instance.mainCamera.SetActive(false);
+        _isShot=false;
     }
 
     void Simulate(Vector3 _vec)
